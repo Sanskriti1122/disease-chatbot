@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
-const API = "http://127.0.0.1:8002";
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8002";
 
 const SUGGESTED_PROMPTS = [
   "I have severe headaches and blurry vision",

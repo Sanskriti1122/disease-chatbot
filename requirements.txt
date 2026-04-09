@@ -8,7 +8,11 @@ python-multipart==0.0.9
 pydantic==2.7.3
 
 # ── AI / ML ───────────────────────────────────
-# OR: torch torchvision (if using PyTorch)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+tensorflow-cpu==2.15.0.post1
+ultralytics==8.1.47
 
 # ── Image Processing ──────────────────────────
 opencv-python-headless==4.9.0.80
@@ -16,6 +20,7 @@ Pillow==10.3.0
 
 # ── LLM ──────────────────────────────────────
 anthropic==0.28.0
+groq==0.8.0
 
 # ── Data & Evaluation ────────────────────────
 numpy==1.26.4

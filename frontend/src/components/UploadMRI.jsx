@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 
-const API = "http://127.0.0.1:8002";
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8002";
 
 const SEVERITY = {
   HIGH:     { ring: "ring-red-500/60",    bg: "bg-red-500/10",    text: "text-red-400",    dot: "bg-red-400",    label: "HIGH RISK" },
