@@ -206,6 +206,10 @@ async def get_class_info():
     """Return metadata about all tumor classes."""
     return CLASS_INFO
 
+@app.get("/")
+def home():
+    return {"message": "Backend is running"}
+
 
 # ─── Run ─────────────────────────────────────────────────────────────────────
 
