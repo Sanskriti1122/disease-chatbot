@@ -42,7 +42,7 @@ app.add_middleware(
 
 # ─── Groq Client ─────────────────────────────────────────────────────────
 
-groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", "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"))
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 SYSTEM_PROMPT = """You are a knowledgeable and compassionate medical AI assistant specializing in neurology and brain health. Your role is to:
 
