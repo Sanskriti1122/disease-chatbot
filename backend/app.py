@@ -11,6 +11,7 @@ import sys
 import json
 import base64
 import io
+import traceback
 from pathlib import Path
 from typing import Optional, List
 
@@ -108,15 +109,27 @@ async def predict_image(file: UploadFile = File(...)):
     """
     allowed = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"}
     ext = Path(file.filename).suffix.lower()
+    print(f"Received /predict-image request: filename={file.filename!r}, ext={ext}")
     if ext not in allowed:
         raise HTTPException(400, f"Unsupported file type: {ext}. Allowed: {allowed}")
 
     try:
         contents = await file.read()
+        print(f"Read upload bytes: size={len(contents)}")
         if len(contents) > 20 * 1024 * 1024:  # 20MB limit
             raise HTTPException(413, "File too large. Maximum 20MB.")
 
         result = predict_tumor(contents)
+        print(
+            "Prediction completed:",
+            json.dumps(
+                {
+                    "class": result["class"],
+                    "confidence_pct": result["confidence_pct"],
+                    "has_annotated_image": bool(result.get("annotated_image")),
+                }
+            ),
+        )
 
         return PredictionResponse(
             success=True,
@@ -149,6 +162,8 @@ async def predict_image(file: UploadFile = File(...)):
             error=str(e),
         )
     except Exception as e:
+        print("Prediction failed with exception:")
+        traceback.print_exc()
         raise HTTPException(500, f"Prediction failed: {str(e)}")
 
 

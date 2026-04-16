@@ -1,33 +1,17 @@
 """
 Brain Tumor Detection – Inference / Prediction Module
-Handles image preprocessing, model loading, and prediction.
+Handles image preprocessing, model loading, and prediction using YOLOv8 natively.
 """
 
 import json
 import io
+import base64
 import numpy as np
 from pathlib import Path
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image
 import cv2
 
-# Optional heavy imports – guarded so the module can be imported without TF
-try:
-    import tensorflow as tf
-    from tensorflow import keras
-    TF_AVAILABLE = True
-except ImportError:
-    TF_AVAILABLE = False
-    print("WARNING: TensorFlow not installed. Image prediction will be disabled.")
-
 # ─── Constants ───────────────────────────────────────────────────────────────
-
-IMG_SIZE    = (224, 224)
-MODEL_DIR = Path(__file__).resolve().parent
-MODEL_DIR = Path(str(MODEL_DIR).strip()) / "models"
-MODEL_PATH  = MODEL_DIR / "brain_tumor_model.h5"
-print("Looking for model at:", MODEL_PATH)
-print("Exists:", MODEL_PATH.exists())
-CLASS_IDX_PATH = MODEL_DIR / "class_indices.json"
 
 CLASS_INFO = {
     "glioma": {
@@ -84,60 +68,7 @@ CLASS_INFO = {
     },
 }
 
-# ─── Model Loader ─────────────────────────────────────────────────────────────
-
-class BrainTumorPredictor:
-    """Singleton-style predictor that loads the model once."""
-
-    _instance = None
-    _model = None
-    _class_indices = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-    def load(self):
-        if self._model is not None:
-            return  # Already loaded
-
-        if not TF_AVAILABLE:
-            raise RuntimeError("TensorFlow is not installed.")
-
-        if not MODEL_PATH.exists():
-            raise FileNotFoundError(
-                f"Model not found at {MODEL_PATH}. "
-                "Please run train_model.py first or place the .h5 file in the models/ folder."
-            )
-
-        print(f"Loading model from {MODEL_PATH}…")
-        self._model = keras.models.load_model(str(MODEL_PATH))
-
-        if CLASS_IDX_PATH.exists():
-            with open(CLASS_IDX_PATH) as f:
-                raw = json.load(f)
-            # Invert: index → class name
-            self._class_indices = {v: k for k, v in raw.items()}
-        else:
-            # Fallback alphabetical order (Keras default)
-            self._class_indices = {0: "glioma", 1: "meningioma", 2: "no_tumor", 3: "pituitary"}
-
-        print("Model loaded successfully.")
-
-    @property
-    def model(self):
-        return self._model
-
-    @property
-    def class_indices(self):
-        return self._class_indices
-
-
-predictor = BrainTumorPredictor()
-
-
-import base64
+# ─── YOLOv8 Model Loader ──────────────────────────────────────────────────────
 
 class YoloPredictor:
     """Singleton-style predictor for YOLO model."""
@@ -168,114 +99,60 @@ class YoloPredictor:
 
 yolo_predictor = YoloPredictor()
 
-# ─── Image Preprocessing ─────────────────────────────────────────────────────
-
-def preprocess_image(image_input) -> np.ndarray:
-    """
-    Accept a file-like object, bytes, PIL Image, or numpy array.
-    Returns a normalized numpy array of shape (1, 224, 224, 3).
-    """
-    if isinstance(image_input, np.ndarray):
-        img = Image.fromarray(image_input)
-    elif isinstance(image_input, bytes):
-        img = Image.open(io.BytesIO(image_input))
-    elif isinstance(image_input, (str, Path)):
-        img = Image.open(image_input)
-    else:
-        img = Image.open(image_input)  # file-like object
-
-    img = img.convert("RGB")
-
-    # Optional: mild CLAHE-style contrast enhancement for medical images
-    img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-    img_yuv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2YUV)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    img_yuv[:, :, 0] = clahe.apply(img_yuv[:, :, 0])
-    img_cv = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
-    img = Image.fromarray(cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB))
-
-    img = img.resize(IMG_SIZE, Image.LANCZOS)
-    arr = np.array(img, dtype=np.float32) / 255.0
-    return np.expand_dims(arr, axis=0)
-
-
 # ─── Prediction ──────────────────────────────────────────────────────────────
 
 def predict_tumor(image_input) -> dict:
     """
-    Run inference and return a structured result dict.
-
-    Returns:
-        {
-          "class": "glioma",
-          "display": "Glioma Tumor",
-          "confidence": 0.91,
-          "confidence_pct": "91.0%",
-          "all_scores": {"glioma": 0.91, ...},
-          "description": "...",
-          "severity": "HIGH",
-          "recommendation": "...",
-          "color": "#ef4444",
-          "body_part": "Brain (MRI/CT Scan)",
-          "annotated_image": "data:image/jpeg;base64,..."
-        }
+    Run inference using YOLOv8 and return a structured result dict.
     """
-    predictor.load()
+    yolo_predictor.load()
+    if yolo_predictor._model is None:
+        raise RuntimeError("YOLO weights not found or failed to load. Make sure ultralytics is installed.")
 
-    arr = preprocess_image(image_input)
-    raw_preds = predictor.model.predict(arr, verbose=0)[0]  # shape: (4,)
+    if isinstance(image_input, bytes):
+        pil_img = Image.open(io.BytesIO(image_input)).convert("RGB")
+    elif isinstance(image_input, np.ndarray):
+        pil_img = Image.fromarray(image_input).convert("RGB")
+    elif isinstance(image_input, (str, Path)):
+        pil_img = Image.open(image_input).convert("RGB")
+    else:
+        pil_img = Image.open(image_input).convert("RGB")
 
-    idx = int(np.argmax(raw_preds))
-    class_name = predictor.class_indices[idx]
-    confidence = float(raw_preds[idx])
+    yolo_results = yolo_predictor._model(pil_img, verbose=False)
+    
+    # Defaults if no tumor is detected
+    class_name = "no_tumor"
+    confidence = 0.95
+    all_scores = {"glioma": 0.0, "meningioma": 0.0, "pituitary": 0.0, "no_tumor": 0.95}
+    annotated_image_b64 = None
 
-    all_scores = {
-        predictor.class_indices[i]: float(raw_preds[i])
-        for i in range(len(raw_preds))
-    }
+    if len(yolo_results) > 0:
+        result_obj = yolo_results[0]
+        
+        # If YOLO detected a bounding box (tumor found)
+        if len(result_obj.boxes) > 0:
+            # Find the box with highest confidence
+            best_idx = int(result_obj.boxes.conf.argmax())
+            box = result_obj.boxes[best_idx]
+            
+            yolo_cls_idx = int(box.cls[0].item())
+            confidence = float(box.conf[0].item())
+            class_name = yolo_predictor._model.names[yolo_cls_idx]
+            
+            # Update scores manually
+            all_scores = {"glioma": 0.0, "meningioma": 0.0, "pituitary": 0.0, "no_tumor": 1.0 - confidence}
+            all_scores[class_name] = confidence
+            
+            # Generate the annotated image
+            bgr_img = result_obj.plot()
+            rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
+            pil_annotated = Image.fromarray(rgb_img)
+            buf = io.BytesIO()
+            pil_annotated.save(buf, format="JPEG", quality=90)
+            img_bytes = buf.getvalue()
+            annotated_image_b64 = "data:image/jpeg;base64," + base64.b64encode(img_bytes).decode('utf-8')
 
     info = CLASS_INFO.get(class_name, {})
-    
-    # ── YOLOv8 Bounding Box Generation and Override ──
-    annotated_image_b64 = None
-    try:
-        yolo_predictor.load()
-        if yolo_predictor._model is not None:
-            if isinstance(image_input, bytes):
-                pil_img = Image.open(io.BytesIO(image_input)).convert("RGB")
-            else:
-                pil_img = Image.open(image_input).convert("RGB")
-                
-            yolo_results = yolo_predictor._model(pil_img, verbose=False)
-            
-            if len(yolo_results) > 0:
-                result_obj = yolo_results[0]
-                
-                # If YOLO detected a bounding box, OVERRIDE the Keras prediction!
-                if len(result_obj.boxes) > 0:
-                    box = result_obj.boxes[0]
-                    yolo_cls_idx = int(box.cls[0].item())
-                    yolo_conf = float(box.conf[0].item())
-                    yolo_class_name = yolo_predictor._model.names[yolo_cls_idx]
-                    
-                    # Update variables for final JSON result to match the image
-                    class_name = yolo_class_name
-                    confidence = yolo_conf
-                    info = CLASS_INFO.get(class_name, {})
-                
-                # Plot returns a BGR numpy array
-                bgr_img = result_obj.plot()
-                # Convert BGR to RGB
-                rgb_img = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2RGB)
-                
-                # Convert to JPEG base64
-                pil_annotated = Image.fromarray(rgb_img)
-                buf = io.BytesIO()
-                pil_annotated.save(buf, format="JPEG", quality=90)
-                img_bytes = buf.getvalue()
-                annotated_image_b64 = "data:image/jpeg;base64," + base64.b64encode(img_bytes).decode('utf-8')
-    except Exception as e:
-        print("WARNING: YOLO prediction failed -", e)
 
     return {
         "class": class_name,
@@ -286,11 +163,10 @@ def predict_tumor(image_input) -> dict:
         "description": info.get("description", ""),
         "severity": info.get("severity", "UNKNOWN"),
         "recommendation": info.get("recommendation", "Please consult a doctor."),
-        "color": info.get("color", "#64748b"),
+        "color": info.get("color", "#22c55e" if class_name == "no_tumor" else info.get("color", "#64748b")),
         "body_part": "Brain (MRI/CT Scan)",
         "annotated_image": annotated_image_b64
     }
-
 
 def format_prediction_report(result: dict) -> str:
     """Format a prediction result as a human-readable string."""
@@ -314,9 +190,6 @@ def format_prediction_report(result: dict) -> str:
         lines.append(f"  {cls:<12} {bar} {score*100:.1f}%")
 
     return "\n".join(lines)
-
-
-# ─── Standalone test ──────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import sys

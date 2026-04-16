@@ -8,10 +8,8 @@ python-multipart==0.0.9
 pydantic==2.7.3
 
 # ── AI / ML ───────────────────────────────────
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.2.2+cpu
-torchvision==0.17.2+cpu
-tensorflow-cpu==2.21.0
+torch==2.2.2
+torchvision==0.17.2
 ultralytics==8.1.47
 
 # ── Image Processing ──────────────────────────
